@@ -1,9 +1,25 @@
+import os
+import tempfile
+import logging
+import json
+import re
+
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+
 try:
     import snowflake.connector
 
     enabled = True
 except ImportError:
     enabled = False
+
+
+logger = logging.getLogger(__name__)
+
+logging.basicConfig()
+logging.getLogger().setLevel(logging.DEBUG)
+logger.setLevel(logging.DEBUG)
 
 
 from redash import __version__
@@ -96,16 +112,43 @@ class Snowflake(BaseSQLQueryRunner):
             else:
                 host = "{}.snowflakecomputing.com".format(account)
 
-        connection = snowflake.connector.connect(
-            user=self.configuration["user"],
-            password=self.configuration["password"],
-            account=account,
-            region=region,
-            host=host,
-            application="Redash/{} (Snowflake)".format(__version__.split("-")[0]),
-        )
+        connection_parameters = {
+            "user": self.configuration["user"],
+            "password": self.configuration["password"],
+            "account": account,
+            "region": region,
+            "host": host,
+            "application": "Redash/{} (Snowflake)".format(__version__.split("-")[0]),
+            "session_parameters": {
+                "QUERY_TAG": "redash",
+            }
+        }
 
-        return connection
+        private_key_content = os.getenv("SNOWFLAKE_PRIVATE_KEY_CONTENT")
+        private_key_password = os.getenv("SNOWFLAKE_PRIVATE_KEY_PASSWORD")
+
+        if private_key_content and private_key_password:
+
+            p_key = serialization.load_pem_private_key(
+                private_key_content.encode(),
+                password=private_key_password.encode(),
+                backend=default_backend()
+            )
+
+            pkb = p_key.private_bytes(
+                encoding=serialization.Encoding.DER,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            )
+
+            connection_parameters['private_key'] = pkb
+
+            # password is not needed
+            connection_parameters.pop('password')
+            logging.debug("Connectiong with the private key from SNOWFLAKE_PRIVATE_KEY_CONTENT and SNOWFLAKE_PRIVATE_KEY_PASSWORD env vars")
+
+
+        return snowflake.connector.connect(**connection_parameters)
 
     def _column_name(self, column_name):
         if self.configuration.get("lower_case_columns", False):

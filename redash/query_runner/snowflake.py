@@ -3,6 +3,7 @@ import tempfile
 import logging
 import json
 import re
+import base64
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -130,7 +131,7 @@ class Snowflake(BaseSQLQueryRunner):
         if private_key_content and private_key_password:
 
             p_key = serialization.load_pem_private_key(
-                private_key_content.encode(),
+                base64.b64decode(private_key_content),
                 password=private_key_password.encode(),
                 backend=default_backend()
             )
